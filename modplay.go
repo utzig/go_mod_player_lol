@@ -18,9 +18,15 @@ type sample struct {
 	data []byte
 }
 
+type pattern struct {
+	data []byte
+}
+
 type module struct {
 	title string
 	samples [31]sample
+	patterns [128]pattern
+	positions int
 }
 
 func loadModule(name string) (module, error) {
@@ -64,7 +70,7 @@ func loadModule(name string) (module, error) {
 		m.samples[i].name = string(buffer[i*30:i*30+22])
 		//fmt.Println(m.samples[i].name)
 		m.samples[i].length = uint16(buffer[i*30+22]) << 8 + uint16(buffer[i*30+23])
-		//fmt.Println(m.samples[i].length)
+		//fmt.Println(m.samples[i].length * 2)
 		m.samples[i].volume = buffer[i*30+25]
 		//fmt.Println(m.samples[i].volume)
 		m.samples[i].repeatoff = uint16(buffer[i*30+26]) << 8 + uint16(buffer[i*30+27])
@@ -80,22 +86,35 @@ func loadModule(name string) (module, error) {
 	total += n
 
 	// number of song positions
-	fmt.Println(buffer[0])
+	m.positions = int(buffer[0])
+	fmt.Println(m.positions)
 
-	// pattern table
-	//buffer[2:128]
+	// TODO: pattern table is at buffer[2:130]
 
 	// M.K. used to check if has 15 or 31 samples
 	fmt.Println(string(buffer[130:134]))
 
-	// TODO: Pattern data
-	buffer = make([]byte, 1023)
-	n, err = file.Read(buffer)
-	if err != nil {
-		return m, err
-	}
+	fmt.Println("total: ", total)
 
-	total += n
+	// TODO: Pattern data
+	pattern := 0
+	patternAmount := 0
+	for i := 0; i < m.positions; i++ {
+		pattern = int(buffer[2+i])
+		fmt.Print("[", pattern, "]")
+		if m.patterns[pattern].data == nil {
+			m.patterns[pattern].data = make([]byte, 1024)
+			n, err = file.Read(m.patterns[pattern].data)
+			if err != nil {
+				return m, err
+			}
+			total += n
+			patternAmount++
+		}
+	}
+	fmt.Println()
+	fmt.Println("total: ", total)
+	fmt.Println("patternAmount: ", patternAmount)
 
 	// Sample data
 	for i := 0; i < 31; i++ {
@@ -139,7 +158,7 @@ func main() {
 		panic(err)
 	}
 
-	out := make([]byte, 2048)
+	out := make([]byte, 128)
 
 	stream, err := portaudio.OpenDefaultStream(0, 1, 22050, len(out), &out)
 	if err != nil {
@@ -153,9 +172,10 @@ func main() {
 	}
 	defer stream.Stop()
 
-	for i := 0; i < 31; i++ {
-		if m.samples[i].length > 0 {
-			copy(out, m.samples[i].data)
+	var offset float32 = 0.0
+	for /*i := 0; i < 31; i++*/ {
+		//if m.samples[i].length > 0 {
+			offset = bufferFromSample(out, m.samples[10].data, offset)
 			err = stream.Write();
 			if err != nil {
 				panic(err)
@@ -165,6 +185,21 @@ func main() {
 				return
 			default:
 			}
-		}
+		//}
 	}
+}
+
+func bufferFromSample(out []byte, in []byte, offset float32) float32 {
+	// with pitch C2, 8287 bytes of sampled data are sent to
+	// channel per second. Channel is configure at 22050
+	var sampleRate float32 = 8287.0 / 22050.0
+	inLen := len(in)
+	outLen := len(out)
+
+	for i := 0; i < outLen; i++ {
+		out[i] = in[int(offset) % inLen]
+		offset += sampleRate
+	}
+
+	return offset
 }
