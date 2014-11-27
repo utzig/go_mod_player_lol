@@ -19,34 +19,44 @@ const (
 	DIVISION_LEN       = 16
 )
 
-/*
-const (
-	C1  = 856,
-	C_1 = 808,
-	D1  = 762,
-	D_1 = 720,
-	E1  = 678,
-	F1  = 640,
-	F_1 = 604,
-	G1  = 570,
-	G_1 = 538,
-	A1  = 508,
-	A_1 = 480,
-	B1  = 453,
-	C2  = 856,
-	C_2 = 808,
-	D2  = 762,
-	D_2 = 720,
-	E2  = 678,
-	F2  = 640,
-	F_2 = 604,
-	G2  = 570,
-	G_2 = 538,
-	A2  = 508,
-	A_2 = 480,
-	B2  = 453,
-)
-*/
+var notes = map[uint16]string {
+	856:  "C-1",
+	808:  "C#1",
+	762:  "D-1",
+	720:  "D#1",
+	678:  "E-1",
+	640:  "F-1",
+	604:  "F#1",
+	570:  "G-1",
+	538:  "G#1",
+	508:  "A-1",
+	480:  "A#1",
+	453:  "B-1",
+	428:  "C-2",
+	404:  "C#2",
+	381:  "D-2",
+	360:  "D#2",
+	339:  "E-2",
+	320:  "F-2",
+	302:  "F#2",
+	285:  "G-2",
+	269:  "G#2",
+	254:  "A-2",
+	240:  "A#2",
+	226:  "B-2",
+	214:  "C-3",
+	202:  "C#3",
+	190:  "D-3",
+	180:  "D#3",
+	170:  "E-3",
+	160:  "F-3",
+	151:  "F#3",
+	143:  "G-3",
+	135:  "G#3",
+	127:  "A-3",
+	120:  "A#3",
+	113:  "B-3",
+}
 
 type sample struct {
 	name string
@@ -77,6 +87,7 @@ type module struct {
 	title string
 	samples [MAX_SAMPLES]sample
 	patterns [MAX_PATTERNS]pattern
+	table []byte
 	positions int
 }
 
@@ -98,7 +109,7 @@ func main() {
 	}
 	defer portaudio.Terminate()
 
-	m, err = loadModule(os.Args[1])
+	err = m.load(os.Args[1])
 	if err != nil {
 		panic(err)
 	}
@@ -117,14 +128,7 @@ func main() {
 	}
 	defer stream.Stop()
 
-	//XXX: debug code
-	for ch := 0; ch < MAX_CHANNELS; ch++ {
-		for div := 0; div < MAX_DIVISIONS; div++ {
-			fmt.Print("[", m.patterns[39].divisions[div].channels[ch].sample, "]")
-		}
-		fmt.Println()
-	}
-
+	m.play()
 
 	/*
 	var offset float32 = 0.0
@@ -192,16 +196,15 @@ func bufferFromSample(out []byte, in []byte, offset float32) float32 {
 	return offset
 }
 
-func loadModule(name string) (module, error) {
+func (m *module) load(name string) error {
 	var file *os.File
 	var n int
-	var m module
 	var err error
 	var buffer []byte
 
 	file, err = os.Open(name)
 	if err != nil {
-		return m, err
+		return err
 	}
 
 	total := 0
@@ -209,7 +212,7 @@ func loadModule(name string) (module, error) {
 	buffer = make([]byte, 20)
 	n, err = file.Read(buffer)
 	if err != nil {
-		return m, err
+		return err
 	}
 
 	total += n
@@ -224,7 +227,7 @@ func loadModule(name string) (module, error) {
 	buffer = make([]byte, 30 * MAX_SAMPLES)
 	n, err = file.Read(buffer)
 	if err != nil {
-		return m, err
+		return err
 	}
 
 	total += n
@@ -243,19 +246,16 @@ func loadModule(name string) (module, error) {
 	buffer = make([]byte, 134)
 	n, err = file.Read(buffer)
 	if err != nil {
-		return m, err
+		return err
 	}
 
 	total += n
 
 	// number of song positions
 	m.positions = int(buffer[0])
-	fmt.Println(m.positions)
 
 	// M.K. used to check if has 15 or 31 samples
-	fmt.Println(string(buffer[130:134]))
-
-	fmt.Println("total: ", total)
+	//fmt.Println(string(buffer[130:134]))
 
 	for i := 0; i < MAX_PATTERNS; i++ {
 		m.patterns[i].initialized = false
@@ -263,25 +263,25 @@ func loadModule(name string) (module, error) {
 
 	/* Now comes the pattern data */
 
-	patterns := make([]byte, MAX_PATTERNS)
-	copy(patterns, buffer[2:130])
+	m.table = make([]byte, MAX_PATTERNS)
+	copy(m.table, buffer[2:130])
 
 	p := 0
 	buffer = make([]byte, 1024)
 	for i := 0; i < m.positions; i++ {
-		p = int(patterns[i])
-		fmt.Print("[", p, "]")
+		p = int(m.table[i])
+		//fmt.Print("[", p, "]")
 		if m.patterns[p].initialized == false {
 			n, err = file.Read(buffer)
 			if err != nil {
-				return m, err
+				return err
 			}
 			loadPattern(buffer, &m.patterns[p])
 			total += n
 		}
 	}
-	fmt.Println()
-	fmt.Println("total: ", total)
+	//fmt.Println()
+	//fmt.Println("total: ", total)
 
 	// Sample data
 	for i := 0; i < MAX_SAMPLES; i++ {
@@ -292,30 +292,37 @@ func loadModule(name string) (module, error) {
 			n, err = file.Read(m.samples[i].data)
 			total += n
 			if err != nil {
-				return m, err
+				return err
 			}
 		}
 	}
 
 	fmt.Println("total: ", total)
 
-	return m, nil
+	return nil
 }
 
 func loadPattern(b []byte, p *pattern) {
 	var sample byte
 	var period, effect uint16
+	var b0, b1, b2, b3 byte
 
 	for j := 0; j < MAX_DIVISIONS; j++ {
 		for c := 0; c < MAX_CHANNELS; c++ {
-			sample  = b[j*DIVISION_LEN + c*MAX_CHANNELS + 2] >> 4
-			sample |= b[j*DIVISION_LEN + c*MAX_CHANNELS + 0] & 0xF0
+			b0 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 0]
+			b1 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 1]
+			b2 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 2]
+			b3 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 3]
 
-			period  = uint16(b[j*DIVISION_LEN + c*MAX_CHANNELS + 1])
-			period |= uint16(b[j*DIVISION_LEN + c*MAX_CHANNELS + 0] & 0x0F) << 8
+			//fmt.Printf("%02x,%02x,%02x,%02x\n", b0, b1, b2, b3)
 
-			effect  = uint16(b[j*DIVISION_LEN + c*MAX_CHANNELS + 3])
-			effect |= uint16(b[j*DIVISION_LEN + c*MAX_CHANNELS + 2] & 0x0F) << 8
+			sample  = b2 >> 4 | b0 & 0xF0
+
+			period  = uint16(b1)
+			period |= uint16(b0 & 0x0F) << 8
+
+			effect  = uint16(b3)
+			effect |= uint16(b2 & 0x0F) << 8
 
 			p.divisions[j].channels[c].sample = sample
 			p.divisions[j].channels[c].period = period
@@ -323,4 +330,27 @@ func loadPattern(b []byte, p *pattern) {
 		}
 	}
 	p.initialized = true
+}
+
+func (m *module) play() {
+	var p *pattern
+	var d *division
+	var c0, c1, c2, c3 *channel
+	for ptrn := 0; ptrn < m.positions; ptrn++ {
+		p = &m.patterns[m.table[ptrn]]
+		fmt.Printf("|=================%02d================|\n", m.table[ptrn])
+		for div := 0; div < MAX_DIVISIONS; div++ {
+			d = &p.divisions[div]
+			c0 = &d.channels[0]
+			c1 = &d.channels[1]
+			c2 = &d.channels[2]
+			c3 = &d.channels[3]
+			fmt.Printf("| %3s %02x | %3s %02x | %3s %02x | %3s %02x |\n",
+			           notes[c0.period], c0.sample,
+			           notes[c1.period], c1.sample,
+			           notes[c2.period], c2.sample,
+			           notes[c3.period], c3.sample)
+		}
+		fmt.Printf("|========|========|========|========|\n")
+	}
 }
