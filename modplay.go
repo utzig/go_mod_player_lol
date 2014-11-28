@@ -5,7 +5,7 @@ import (
 	"os"
 	"fmt"
 	//"encoding/binary"
-	//"time"
+	"time"
 	"os/signal"
 )
 
@@ -102,6 +102,12 @@ func main() {
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, os.Kill)
+	go func() {
+		select {
+		case <-sig:
+			os.Exit(0)
+		}
+	}()
 
 	err := portaudio.Initialize()
 	if err != nil {
@@ -139,14 +145,6 @@ func main() {
 				err = stream.Write();
 				if err != nil {
 					panic(err)
-				}
-				select {
-				case <-sig:
-					return
-				default:
-				}
-				if offset == 0.0 {
-					break
 				}
 			}
 		}
@@ -306,15 +304,19 @@ func loadPattern(b []byte, p *pattern) {
 	var sample byte
 	var period, effect uint16
 	var b0, b1, b2, b3 byte
+	var index int
 
 	for j := 0; j < MAX_DIVISIONS; j++ {
+		//fmt.Println("Division ", j)
 		for c := 0; c < MAX_CHANNELS; c++ {
-			b0 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 0]
-			b1 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 1]
-			b2 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 2]
-			b3 = b[j*DIVISION_LEN + c*MAX_CHANNELS + 3]
+			index = j * DIVISION_LEN + c * MAX_CHANNELS
 
-			//fmt.Printf("%02x,%02x,%02x,%02x\n", b0, b1, b2, b3)
+			b0 = b[index]
+			b1 = b[index + 1]
+			b2 = b[index + 2]
+			b3 = b[index + 3]
+
+			//fmt.Printf("%d: %02x,%02x,%02x,%02x\n", index, b0, b1, b2, b3)
 
 			sample  = b2 >> 4 | b0 & 0xF0
 
@@ -336,6 +338,8 @@ func (m *module) play() {
 	var p *pattern
 	var d *division
 	var c0, c1, c2, c3 *channel
+	ticker := time.NewTicker(500 * time.Millisecond)
+	defer ticker.Stop()
 	for ptrn := 0; ptrn < m.positions; ptrn++ {
 		p = &m.patterns[m.table[ptrn]]
 		fmt.Printf("|=================%02d================|\n", m.table[ptrn])
@@ -350,6 +354,9 @@ func (m *module) play() {
 			           notes[c1.period], c1.sample,
 			           notes[c2.period], c2.sample,
 			           notes[c3.period], c3.sample)
+			select {
+			case _ = <-ticker.C:
+			}
 		}
 		fmt.Printf("|========|========|========|========|\n")
 	}
